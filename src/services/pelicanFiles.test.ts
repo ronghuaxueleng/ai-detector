@@ -15,20 +15,6 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("鹈鹕下载文件", () => {
-  it("Windows 未设下载目录时弹出另存为，取消时不直接下载", async () => {
-    vi.stubGlobal("navigator", { userAgent: "Windows NT 10.0" });
-    invoke.mockResolvedValueOnce("D:\\作品\\动画.gif");
-    expect(await savePelicanFile(new Blob(["GIF"]), "test.gif")).toEqual({
-      fileName: "test.gif", path: "D:\\作品\\动画.gif",
-    });
-    expect(invoke).toHaveBeenCalledWith("save_pelican_file", {
-      fileName: "test.gif", extension: "gif", data: [71, 73, 70],
-    });
-    invoke.mockResolvedValueOnce(null);
-    expect(await savePelicanFile(new Blob(["GIF"]), "test.gif")).toBeNull();
-    expect(invoke).toHaveBeenCalledTimes(2);
-  });
-
   it("下载文件名沿用模型与时间戳，排除路径符号", () => {
     expect(buildPelicanFileName("model/test:1", "gif", 123)).toBe("pelican-model_test_1-123.gif");
     expect(buildPelicanFileName("", "html", 123)).toBe("pelican-model-123.html");

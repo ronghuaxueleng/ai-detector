@@ -56,7 +56,7 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
-  // 旧版本用 dark 表示默认深色，升级后归一为 default，避免与新暗色皮肤混淆
+  // 旧版本用 dark 表示经典深色，升级后归一为 default，避免与新暗色皮肤混淆
   if (values.theme === "dark") {
     values.theme = "default";
     persist();
@@ -88,9 +88,9 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   const theme = computed<AppTheme>(() => {
-    if (values.theme === "light") return "light";
+    if (values.theme === "default") return "default";
     if (values.theme === "midnight") return "midnight";
-    return "default";
+    return "light";
   });
 
   const defaultTestMode = computed<ActiveTestMode>(() => {
@@ -128,6 +128,8 @@ export const useSettingsStore = defineStore("settings", () => {
   const downloadDirectory = computed<string>(() =>
     typeof values.downloadDirectory === "string" ? values.downloadDirectory.trim() : ""
   );
+
+  const autoCheckUpdate = computed<boolean>(() => values.autoCheckUpdate !== false);
 
   const userAgentPreset = computed<UserAgentPresetKey>(() =>
     isValidUserAgentPreset(values.userAgentPreset)
@@ -170,6 +172,50 @@ export const useSettingsStore = defineStore("settings", () => {
     persist();
   }
 
+  function importSettings(incoming: Record<string, SettingsValue>): number {
+    if (!incoming || typeof incoming !== "object") return 0;
+    let applied = 0;
+    for (const key of Object.keys(defaults)) {
+      if (!(key in incoming)) continue;
+      const val = incoming[key];
+      if (typeof val !== typeof defaults[key]) continue;
+      values[key] = val;
+      applied += 1;
+    }
+
+    if (values.theme === "dark") {
+      values.theme = "default";
+    } else if (
+      values.theme !== "default" &&
+      values.theme !== "light" &&
+      values.theme !== "midnight"
+    ) {
+      values.theme = defaults.theme;
+    }
+    if (!VALID_RETRY_COUNTS.has(values.requestRetryCount)) {
+      values.requestRetryCount = "3";
+    }
+    if (!isValidUserAgentPreset(values.userAgentPreset)) {
+      values.userAgentPreset = DEFAULT_USER_AGENT_PRESET;
+    }
+    if (
+      values.defaultTestMode !== "probe" &&
+      values.defaultTestMode !== "pelican" &&
+      values.defaultTestMode !== "candy" &&
+      values.defaultTestMode !== "connection"
+    ) {
+      values.defaultTestMode = "probe";
+    }
+    if (values.defaultConnectionMode !== "chat" && values.defaultConnectionMode !== "quick") {
+      values.defaultConnectionMode = "chat";
+    }
+    values.streamTimeoutSeconds = clampTimeout(values.streamTimeoutSeconds, 90, 600);
+    values.syncTimeoutSeconds = clampTimeout(values.syncTimeoutSeconds, 240, 900);
+
+    persist();
+    return applied;
+  }
+
   function persist(): void {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
@@ -200,6 +246,7 @@ export const useSettingsStore = defineStore("settings", () => {
     historyMaxCount,
     defaultConnectionMode,
     downloadDirectory,
+    autoCheckUpdate,
     userAgentPreset,
     customUserAgent,
     resolvedUserAgent,
@@ -208,5 +255,6 @@ export const useSettingsStore = defineStore("settings", () => {
     appendHistoryEntry,
     getValue,
     setValue,
+    importSettings,
   };
 });

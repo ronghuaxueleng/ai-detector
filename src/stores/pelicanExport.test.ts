@@ -12,14 +12,6 @@ beforeEach(() => { setActivePinia(createPinia()); record.mockReset(); save.mockR
 afterEach(() => vi.useRealTimers());
 
 describe("一键下载任务", () => {
-  it("取消另存为时不提示成功或失败，并解除任务锁", async () => {
-    save.mockResolvedValue(null);
-    const store = usePelicanExportStore();
-    await store.exportFile(source, "svg");
-    expect(useToastStore().toastState.isOpen).toBe(false);
-    expect(store.isExporting).toBe(false);
-  });
-
   it("SVG原文件保持原字节，成功提示实际路径", async () => {
     const store = usePelicanExportStore();
     save.mockResolvedValue({ fileName: "qa.svg", path: "C:\\Downloads\\qa.svg" });

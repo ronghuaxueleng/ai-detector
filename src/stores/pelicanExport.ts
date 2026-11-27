@@ -30,7 +30,6 @@ export const usePelicanExportStore = defineStore("pelicanExport", () => {
         blob = new Blob([source.content], { type: format === "html" ? "text/html;charset=utf-8" : "image/svg+xml;charset=utf-8" });
       }
       const result = await savePelicanFile(blob, buildPelicanFileName(source.modelName, format, source.createdAt));
-      if (!result) return;
       if (result.path) {
         toastStore.showToast({ type: "success", title: "下载完成", filePath: result.path, duration: 5000 });
       } else {

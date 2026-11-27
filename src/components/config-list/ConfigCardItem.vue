@@ -146,10 +146,6 @@ function maskApiKey(key?: string): string {
         <span v-if="!isActive && isSwitchDisabled" class="status-badge badge-disabled">
           <span>测试中不可切换</span>
         </span>
-        <!-- 未激活时的悬浮切换提示 -->
-        <span v-else-if="!isActive" class="status-badge badge-hint">
-          <span>点击切换</span>
-        </span>
       </div>
 
       <div class="card-actions" @mousedown.stop @dblclick.stop>
@@ -220,11 +216,6 @@ function maskApiKey(key?: string): string {
     background: var(--bg-card-hover);
     box-shadow: var(--shadow-hover), 0 0 10px rgba(var(--accent-rgb), 0.08);
     transform: translateY(-1px);
-
-    .card-main-row .card-title-group .badge-hint {
-      opacity: 1;
-      transform: translateX(0);
-    }
   }
 
   &:active {
@@ -233,7 +224,6 @@ function maskApiKey(key?: string): string {
 
   /* 鼠标悬浮在编辑/删除按钮上时，柔和淡化切换提示，聚焦当前按钮操作 */
   &:has(.card-actions:hover) {
-    .card-main-row .card-title-group .badge-hint,
     .card-main-row .card-title-group .badge-disabled {
       opacity: 0.2;
       transform: translateX(-2px);
@@ -378,14 +368,6 @@ function maskApiKey(key?: string): string {
         pointer-events: none;
       }
 
-      .badge-hint {
-        color: var(--accent-text);
-        background: rgba(var(--accent-rgb), 0.14);
-        border: 1px solid rgba(var(--accent-rgb), 0.35);
-        opacity: 0;
-        transform: translateX(-4px);
-      }
-
       .badge-disabled {
         color: var(--warning, #f59e0b);
         background: rgba(245, 158, 11, 0.14);
@@ -428,9 +410,13 @@ function maskApiKey(key?: string): string {
           border-color: var(--border-subtle);
 
           &:hover {
-            background: var(--bg-control-hover);
-            color: var(--text-primary);
-            border-color: rgba(var(--accent-rgb), 0.35);
+            background: var(--bg-surface-control-hover);
+            color: var(--accent-text);
+            border-color: var(--border-surface-control-hover);
+          }
+
+          &:active {
+            background: var(--bg-surface-control-active);
           }
         }
 

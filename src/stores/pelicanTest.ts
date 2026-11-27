@@ -14,6 +14,7 @@ import { sleep } from "../utils/timer";
 import { isTimeoutError } from "../utils/retry";
 import { maskApiKey } from "../utils/pelicanFormatters";
 import { extractSvgBlock } from "../utils/svgExtract";
+import { importHistoryItems } from "../utils/historyImport";
 import { useSettingsStore } from "./settings";
 
 export const DEFAULT_PELICAN_PROMPT =
@@ -364,6 +365,12 @@ export const usePelicanTestStore = defineStore("pelicanTest", () => {
     }
   }
 
+  function importPelicanHistory(items: PelicanHistoryItem[], mode: "merge" | "overwrite") {
+    const { next, added, skipped } = importHistoryItems(pelicanHistoryList.value, items, mode, persistPelicanHistory);
+    pelicanHistoryList.value = next;
+    return { added, skipped };
+  }
+
   function setPelicanPrompt(newPrompt: string): void {
     const trimmed = newPrompt.trim();
     const finalPrompt = trimmed || DEFAULT_PELICAN_PROMPT;
@@ -697,6 +704,7 @@ export const usePelicanTestStore = defineStore("pelicanTest", () => {
     resetPelicanTest,
     deletePelicanHistoryItem,
     clearPelicanHistory,
+    importPelicanHistory,
     applyHistoryItem,
   };
 });

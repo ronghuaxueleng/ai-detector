@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from "vue";
+import { ref, computed } from "vue";
 import type { ConfigGroup, ConfigItem } from "../types";
 import ConfigModalHeader from "./config-list/ConfigModalHeader.vue";
 import ConfigListToolbar from "./config-list/ConfigListToolbar.vue";
+import ConfigCreateGroupBar from "./config-list/ConfigCreateGroupBar.vue";
 import ConfigGroupSection from "./config-list/ConfigGroupSection.vue";
 import ConfigCardItem from "./config-list/ConfigCardItem.vue";
 import ConfigEmptyState from "./config-list/ConfigEmptyState.vue";
+import { useConfigListDrag } from "./config-list/useConfigListDrag";
 import { useToast } from "../composables/useToast";
 import { useAppStore } from "../stores/app";
 import { buildConfigListViewModel } from "../utils/configFilter";
-import { Check, FolderPlus, Inbox, X } from "@lucide/vue";
+import { Inbox } from "@lucide/vue";
 
 const props = withDefaults(
   defineProps<{
@@ -43,6 +45,7 @@ const emit = defineEmits<{
   (e: "setGroupCollapsed", payload: { groupId: string; collapsed: boolean }): void;
   (e: "toggleAllGroups", collapsed: boolean): void;
   (e: "moveToGroup", payload: { configId: string; groupId: string | null }): void;
+  (e: "reorderGroup", payload: { sourceId: string; targetId: string; position: "before" | "after" }): void;
 }>();
 
 const { showToast } = useToast();
@@ -63,24 +66,40 @@ function showSwitchBlockedTip(): void {
 
 const searchQuery = ref("");
 const isCreatingGroup = ref(false);
-const newGroupName = ref("");
-const newGroupInputRef = ref<HTMLInputElement | null>(null);
+const listBodyRef = ref<HTMLElement | null>(null);
 
-type DropTarget =
-  | { type: "item"; id: string; position: "before" | "after" }
-  | { type: "group"; groupId: string }
-  | { type: "ungrouped" };
-
-const draggedId = ref<string | null>(null);
-const dropTarget = ref<DropTarget | null>(null);
-
-const draggedItem = computed(() => {
-  if (!draggedId.value) return undefined;
-  return props.configs.find((item) => item.id === draggedId.value);
-});
-
-const isDraggingGroupedConfig = computed(() => {
-  return Boolean(draggedItem.value?.groupId);
+const {
+  draggedId,
+  draggedGroupId,
+  dropTarget,
+  isDraggingGroupedConfig,
+  cleanupDrag,
+  handleDragStart,
+  handleDragStartGroup,
+  handleDragOverItem,
+  handleDragEnterItem,
+  handleDragLeaveItem,
+  handleDropOnItem,
+  handleDragOverGroup,
+  handleDragEnterGroup,
+  handleDragLeaveGroup,
+  handleDropOnGroup,
+  handleDragOverListBody,
+  handleDragLeaveListBody,
+  handleDropOnListBody,
+  handleDragOverUngrouped,
+  handleDragEnterUngrouped,
+  handleDragLeaveUngrouped,
+  handleDropOnUngrouped,
+} = useConfigListDrag({
+  configs: () => props.configs,
+  groups: () => props.groups,
+  listBodyRef,
+  onReorderItem: (payload) => emit("reorder", payload),
+  onSwapItem: (payload) => emit("swap", payload),
+  onMoveToGroup: (payload) => emit("moveToGroup", payload),
+  onSetGroupCollapsed: (payload) => emit("setGroupCollapsed", payload),
+  onReorderGroup: (payload) => emit("reorderGroup", payload),
 });
 
 const viewModel = computed(() => {
@@ -105,179 +124,15 @@ const showEmptyState = computed(() => {
 
 function openCreateGroupInput(): void {
   isCreatingGroup.value = true;
-  newGroupName.value = "";
-  nextTick(() => {
-    newGroupInputRef.value?.focus();
-  });
 }
 
-function confirmCreateGroup(): void {
-  const trimmed = newGroupName.value.trim();
-  if (!trimmed) {
-    showToast({
-      type: "warning",
-      title: "请输入分组名称",
-      duration: 2000,
-    });
-    newGroupInputRef.value?.focus();
-    return;
-  }
-  emit("createGroup", trimmed);
+function handleConfirmCreateGroup(name: string): void {
+  emit("createGroup", name);
   isCreatingGroup.value = false;
-  newGroupName.value = "";
-}
-
-function cancelCreateGroup(): void {
-  isCreatingGroup.value = false;
-  newGroupName.value = "";
-}
-
-function handleCreateGroupBlur(): void {
-  if (!isCreatingGroup.value) return;
-  const trimmed = newGroupName.value.trim();
-  if (!trimmed) {
-    cancelCreateGroup();
-    return;
-  }
-  confirmCreateGroup();
 }
 
 function handleToggleAllGroups(): void {
   emit("toggleAllGroups", !allCollapsed.value);
-}
-
-function handleDragStart(e: DragEvent, id: string): void {
-  draggedId.value = id;
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", id);
-  }
-}
-
-function handleDragOverItem(e: DragEvent, id: string, position: "before" | "after"): void {
-  e.preventDefault();
-  e.stopPropagation();
-  if (!draggedId.value || draggedId.value === id) {
-    if (dropTarget.value?.type === "item" && dropTarget.value.id === id) {
-      dropTarget.value = null;
-    }
-    return;
-  }
-  if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = "move";
-  }
-  dropTarget.value = { type: "item", id, position };
-}
-
-function handleDragEnterItem(e: DragEvent, id: string, position: "before" | "after"): void {
-  e.preventDefault();
-  e.stopPropagation();
-  if (!draggedId.value || draggedId.value === id) return;
-  dropTarget.value = { type: "item", id, position };
-}
-
-function handleDragLeaveItem(e: DragEvent, id: string): void {
-  const currentTarget = e.currentTarget as HTMLElement | null;
-  const relatedTarget = e.relatedTarget as Node | null;
-  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
-    return;
-  }
-  if (dropTarget.value?.type === "item" && dropTarget.value.id === id) {
-    dropTarget.value = null;
-  }
-}
-
-function handleDropOnItem(e: DragEvent, targetId: string, position: "before" | "after"): void {
-  e.preventDefault();
-  e.stopPropagation();
-  const sourceId = draggedId.value || e.dataTransfer?.getData("text/plain");
-  const targetPos =
-    position ||
-    (dropTarget.value?.type === "item" ? dropTarget.value.position : "before");
-  if (sourceId && sourceId !== targetId) {
-    emit("reorder", { sourceId, targetId, position: targetPos });
-    emit("swap", { sourceId, targetId });
-  }
-  cleanupDrag();
-}
-
-function handleDragOverGroup(e: DragEvent, groupId: string): void {
-  e.preventDefault();
-  if (!draggedId.value) return;
-  if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = "move";
-  }
-  dropTarget.value = { type: "group", groupId };
-}
-
-function handleDragEnterGroup(e: DragEvent, groupId: string): void {
-  e.preventDefault();
-  if (!draggedId.value) return;
-  dropTarget.value = { type: "group", groupId };
-}
-
-function handleDragLeaveGroup(e: DragEvent, groupId: string): void {
-  const currentTarget = e.currentTarget as HTMLElement | null;
-  const relatedTarget = e.relatedTarget as Node | null;
-  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
-    return;
-  }
-  if (dropTarget.value?.type === "group" && dropTarget.value.groupId === groupId) {
-    dropTarget.value = null;
-  }
-}
-
-function handleDropOnGroup(e: DragEvent, groupId: string): void {
-  e.preventDefault();
-  const sourceId = draggedId.value || e.dataTransfer?.getData("text/plain");
-  if (sourceId) {
-    emit("moveToGroup", { configId: sourceId, groupId });
-    const targetGroup = props.groups.find((g) => g.id === groupId);
-    if (targetGroup?.collapsed) {
-      emit("setGroupCollapsed", { groupId, collapsed: false });
-    }
-  }
-  cleanupDrag();
-}
-
-function handleDragOverUngrouped(e: DragEvent): void {
-  e.preventDefault();
-  if (!draggedId.value) return;
-  if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = "move";
-  }
-  dropTarget.value = { type: "ungrouped" };
-}
-
-function handleDragEnterUngrouped(e: DragEvent): void {
-  e.preventDefault();
-  if (!draggedId.value) return;
-  dropTarget.value = { type: "ungrouped" };
-}
-
-function handleDragLeaveUngrouped(e: DragEvent): void {
-  const currentTarget = e.currentTarget as HTMLElement | null;
-  const relatedTarget = e.relatedTarget as Node | null;
-  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
-    return;
-  }
-  if (dropTarget.value?.type === "ungrouped") {
-    dropTarget.value = null;
-  }
-}
-
-function handleDropOnUngrouped(e: DragEvent): void {
-  e.preventDefault();
-  const sourceId = draggedId.value || e.dataTransfer?.getData("text/plain");
-  if (sourceId) {
-    emit("moveToGroup", { configId: sourceId, groupId: null });
-  }
-  cleanupDrag();
-}
-
-function cleanupDrag(): void {
-  draggedId.value = null;
-  dropTarget.value = null;
 }
 
 function handleApplyItem(item: ConfigItem): void {
@@ -328,44 +183,19 @@ function handleQuickApply(item: ConfigItem): void {
         />
 
         <!-- 弹窗可滚动主体 -->
-        <div class="modal-body list-body">
+        <div
+          ref="listBodyRef"
+          class="modal-body list-body"
+          @dragover="handleDragOverListBody"
+          @dragleave="handleDragLeaveListBody"
+          @drop="handleDropOnListBody"
+        >
           <!-- 内联新建分组条 -->
-          <div v-if="isCreatingGroup" class="create-group-inline-card">
-            <div class="create-group-icon">
-              <FolderPlus :size="15" />
-            </div>
-            <input
-              ref="newGroupInputRef"
-              v-model="newGroupName"
-              type="text"
-              class="create-group-input"
-              placeholder="输入新分组名称，按 Enter 创建..."
-              maxlength="40"
-              @blur="handleCreateGroupBlur"
-              @keydown.enter.prevent="confirmCreateGroup"
-              @keydown.esc.stop.prevent="cancelCreateGroup"
-            />
-            <div class="create-group-actions">
-              <button
-                type="button"
-                class="btn-inline btn-confirm"
-                title="确认创建 (Enter)"
-                @mousedown.prevent
-                @click="confirmCreateGroup"
-              >
-                <Check :size="14" />
-              </button>
-              <button
-                type="button"
-                class="btn-inline btn-cancel"
-                title="取消 (Esc)"
-                @mousedown.prevent
-                @click="cancelCreateGroup"
-              >
-                <X :size="14" />
-              </button>
-            </div>
-          </div>
+          <ConfigCreateGroupBar
+            v-if="isCreatingGroup"
+            @confirm="handleConfirmCreateGroup"
+            @cancel="isCreatingGroup = false"
+          />
 
           <!-- 分组与配置列表 -->
           <div v-if="!showEmptyState" class="config-sections-container">
@@ -381,9 +211,18 @@ function handleQuickApply(item: ConfigItem): void {
               :is-drop-target="dropTarget?.type === 'group' && dropTarget.groupId === section.group.id"
               :is-filtering="viewModel.isFiltering"
               :is-dragging-config="Boolean(draggedId)"
+              :is-dragging="draggedGroupId === section.group.id"
+              :is-dragging-group="Boolean(draggedGroupId)"
+              :drag-over-position="
+                dropTarget?.type === 'group-reorder' && dropTarget.groupId === section.group.id
+                  ? dropTarget.position
+                  : null
+              "
               @toggle="emit('toggleGroup', section.group.id)"
               @rename="(groupId, name) => emit('renameGroup', { groupId, name })"
               @delete="emit('deleteGroup', $event)"
+              @dragstart-group="handleDragStartGroup"
+              @dragend-group="cleanupDrag"
               @dragover-group="handleDragOverGroup"
               @dragenter-group="handleDragEnterGroup"
               @dragleave-group="handleDragLeaveGroup"
@@ -521,92 +360,6 @@ function handleQuickApply(item: ConfigItem): void {
   gap: 12px;
   flex: 1;
   min-height: 0;
-}
-
-.create-group-inline-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--bg-panel);
-  border: 1px solid rgba(var(--accent-rgb), 0.45);
-  border-radius: var(--radius-md);
-  box-shadow: 0 0 0 2px var(--border-glow);
-
-  .create-group-icon {
-    color: var(--accent-icon);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .create-group-input {
-    flex: 1;
-    min-width: 0;
-    height: 30px;
-    padding: 0 10px;
-    font-size: 13px;
-    color: var(--text-primary);
-    background: var(--bg-input);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    outline: none;
-
-    &:focus {
-      border-color: var(--accent-primary);
-    }
-
-    &::placeholder {
-      color: var(--text-placeholder);
-    }
-  }
-
-  .create-group-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-
-    .btn-inline {
-      width: 24px;
-      height: 24px;
-      padding: 0;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: all var(--transition-fast);
-      border: 1px solid transparent;
-
-      svg {
-        display: block;
-        flex-shrink: 0;
-      }
-
-      &.btn-confirm {
-        color: var(--success-text);
-        background: var(--success-bg);
-        border-color: var(--success-border);
-
-        &:hover {
-          background: rgba(16, 185, 129, 0.22);
-        }
-      }
-
-      &.btn-cancel {
-        background: var(--bg-control);
-        border-color: var(--border-subtle);
-        color: var(--text-secondary);
-
-        &:hover {
-          background: var(--bg-control-hover);
-          color: var(--text-strong);
-        }
-      }
-    }
-  }
 }
 
 .config-sections-container {

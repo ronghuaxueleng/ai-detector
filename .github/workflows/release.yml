@@ -26,6 +26,48 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify Release Tag & Version
+        id: verify_version
+        shell: pwsh
+        run: |
+          $targetTag = "${{ github.event.inputs.tag_name }}".Trim()
+          if ([string]::IsNullOrWhiteSpace($targetTag)) {
+            $targetTag = "${{ github.ref_name }}".Trim()
+          }
+
+          if ($targetTag -notmatch '^v\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$') {
+            Write-Error "无效的发布 Tag: '$targetTag'（应为类似 v1.3.0 的语义化版本标签）"
+            exit 1
+          }
+
+          $appVersion = $targetTag -replace '^v', ''
+
+          $pkgVersion = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          $cargoToml = (Get-Content "src-tauri/Cargo.toml" -Raw) -replace "`r`n", "`n"
+          $cargoMatch = [regex]::Match($cargoToml, '(?ms)^\[package\]\n(?:(?!^\[).)*?^version\s*=\s*"([^"]+)"')
+          $cargoVersion = if ($cargoMatch.Success) { $cargoMatch.Groups[1].Value } else { "" }
+
+          $mismatch = $false
+          foreach ($item in @(
+            @{ Name = "package.json"; Value = $pkgVersion },
+            @{ Name = "src-tauri/tauri.conf.json"; Value = $tauriVersion },
+            @{ Name = "src-tauri/Cargo.toml"; Value = $cargoVersion }
+          )) {
+            if ([string]::IsNullOrWhiteSpace($item.Value) -or $item.Value -ne $appVersion) {
+              Write-Host "::error::$($item.Name) 版本号 ('$($item.Value)') 与目标发布版本 '$appVersion' 不一致"
+              $mismatch = $true
+            }
+          }
+
+          if ($mismatch) {
+            exit 1
+          }
+
+          Write-Host "版本一致性校验通过: tag=$targetTag, version=$appVersion"
+          "tag=$targetTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -58,10 +100,7 @@ jobs:
         id: extract_changelog
         shell: pwsh
         run: |
-          $targetTag = "${{ github.event.inputs.tag_name }}"
-          if ([string]::IsNullOrWhiteSpace($targetTag)) {
-            $targetTag = "${{ github.ref_name }}"
-          }
+          $targetTag = "${{ steps.verify_version.outputs.tag }}"
           Write-Host "Extracting changelog for tag: $targetTag"
           node scripts/extract-changelog.js CHANGELOG.md RELEASE_NOTES.md $targetTag
 
@@ -69,24 +108,29 @@ jobs:
         run: npm run tauri build
         env:
           CI: true
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Prepare Release Artifacts
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           New-Item -ItemType Directory -Force -Path dist-release | Out-Null
 
-          # 1. 收集 NSIS 安装程序 (*-setup.exe 或 *.exe)，替换任何残留中文确保纯英文
-          Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+          # 1. 收集 NSIS 安装程序及更新签名 (*-setup.exe / *.exe.sig)，替换任何残留中文确保纯英文
+          Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*" -Include "*.exe", "*.exe.sig" -ErrorAction SilentlyContinue | ForEach-Object {
             $destName = $_.Name -replace "AI模型检测器", "AI-Detector"
             Copy-Item -Path $_.FullName -Destination "dist-release/$destName"
-            Write-Host "Collected NSIS Installer: $destName"
+            Write-Host "Collected NSIS Artifact: $destName"
           }
 
-          # 2. 收集 MSI 安装程序 (*.msi)，替换任何残留中文确保纯英文
-          Get-ChildItem -Path "src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+          # 2. 收集 MSI 安装程序及更新签名 (*.msi / *.msi.sig)，替换任何残留中文确保纯英文
+          Get-ChildItem -Path "src-tauri/target/release/bundle/msi/*" -Include "*.msi", "*.msi.sig" -ErrorAction SilentlyContinue | ForEach-Object {
             $destName = $_.Name -replace "AI模型检测器", "AI-Detector"
             Copy-Item -Path $_.FullName -Destination "dist-release/$destName"
-            Write-Host "Collected MSI Installer: $destName"
+            Write-Host "Collected MSI Artifact: $destName"
           }
 
           # 3. 收集编译生成的独立可执行文件（仅保留唯一的标准英文名 AI-Detector.exe）
@@ -109,7 +153,23 @@ jobs:
             }
           }
 
-          # 5. 生成 SHA256 校验和清单
+          # 5. 为便携版生成更新签名
+          $targetTag = "${{ steps.verify_version.outputs.tag }}"
+          $appVersion = "${{ steps.verify_version.outputs.version }}"
+          if (Test-Path "dist-release/AI-Detector.exe") {
+            npx tauri signer sign "dist-release/AI-Detector.exe" --app-version $appVersion
+            if ($LASTEXITCODE -ne 0) {
+              throw "便携版可执行文件签名失败"
+            }
+          }
+
+          # 6. 生成自动更新清单 latest.json
+          node scripts/generate-update-manifest.js --dir dist-release --tag $targetTag --notes RELEASE_NOTES.md --repo "${{ github.repository }}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "生成自动更新清单 latest.json 失败"
+          }
+
+          # 7. 生成 SHA256 校验和清单
           $checksumFile = "dist-release/checksums-sha256.txt"
           Get-ChildItem -Path "dist-release" -File | Where-Object { $_.Name -ne "checksums-sha256.txt" } | ForEach-Object {
             $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower()

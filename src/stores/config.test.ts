@@ -808,6 +808,118 @@ describe("配置分组管理、拖拽归组与级联删除测试套件", () => {
     expect(store.configList[0].groupId).toBe("g_valid");
     expect(store.configList[1].groupId).toBeUndefined();
   });
+
+  it("moveConfigGroup 支持向前/向后拖动排序、边界校验与持久化恢复", () => {
+    storage.clear();
+    setActivePinia(createPinia());
+    const store = useConfigStore();
+    store.loadConfig();
+
+    const g1 = store.createConfigGroup("分组1")!;
+    const g2 = store.createConfigGroup("分组2")!;
+    const g3 = store.createConfigGroup("分组3")!;
+    const g4 = store.createConfigGroup("分组4")!;
+
+    expect(store.configGroups.map((g) => g.id)).toEqual([g1.id, g2.id, g3.id, g4.id]);
+
+    // 拖动自身或无效 ID 时返回 false 且顺序不变
+    expect(store.moveConfigGroup(g1.id, g1.id, "before")).toBe(false);
+    expect(store.moveConfigGroup("", g1.id, "before")).toBe(false);
+    expect(store.moveConfigGroup(g1.id, "not_exist", "after")).toBe(false);
+    expect(store.moveConfigGroup("not_exist", g1.id, "before")).toBe(false);
+    expect(store.configGroups.map((g) => g.id)).toEqual([g1.id, g2.id, g3.id, g4.id]);
+
+    // 向前拖动插入：将 g4 插入到 g2 之前 (before) -> [g1, g4, g2, g3]
+    expect(store.moveConfigGroup(g4.id, g2.id, "before")).toBe(true);
+    expect(store.configGroups.map((g) => g.id)).toEqual([g1.id, g4.id, g2.id, g3.id]);
+
+    // 向前拖动插入：将 g3 插入到 g1 之后 (after) -> [g1, g3, g4, g2]
+    expect(store.moveConfigGroup(g3.id, g1.id, "after")).toBe(true);
+    expect(store.configGroups.map((g) => g.id)).toEqual([g1.id, g3.id, g4.id, g2.id]);
+
+    // 向后拖动插入：将 g1 插入到 g4 之前 (before) -> [g3, g1, g4, g2]
+    expect(store.moveConfigGroup(g1.id, g4.id, "before")).toBe(true);
+    expect(store.configGroups.map((g) => g.id)).toEqual([g3.id, g1.id, g4.id, g2.id]);
+
+    // 向后拖动插入：将 g3 插入到 g2 之后 (after) -> [g1, g4, g2, g3]
+    expect(store.moveConfigGroup(g3.id, g2.id, "after")).toBe(true);
+    expect(store.configGroups.map((g) => g.id)).toEqual([g1.id, g4.id, g2.id, g3.id]);
+
+    // 持久化恢复验证
+    setActivePinia(createPinia());
+    const freshStore = useConfigStore();
+    freshStore.loadConfig();
+    expect(freshStore.configGroups.map((g) => g.id)).toEqual([g1.id, g4.id, g2.id, g3.id]);
+  });
+
+  it("importConfigs 支持合并去重（按 ID/同名复用分组）与覆盖替换", () => {
+    storage.clear();
+    setActivePinia(createPinia());
+    const store = useConfigStore();
+    store.loadConfig();
+
+    const g1 = store.createConfigGroup("主力")!;
+    store.handleSaveConfigItem({
+      name: "账号A",
+      baseUrl: "https://api.a.com",
+      apiKey: "sk-a",
+      modelName: "gpt-4o",
+      groupId: g1.id,
+    });
+
+    // 合并：同名分组复用，重复账号跳过，新账号导入并映射到已有分组
+    const mergeRes = store.importConfigs(
+      {
+        groups: [
+          { id: "ext_g1", name: "主力" },
+          { id: "ext_g2", name: "备用" },
+        ],
+        items: [
+          {
+            id: "dup_item",
+            name: "账号A",
+            baseUrl: "https://api.a.com",
+            apiKey: "sk-a",
+            modelName: "gpt-4o",
+            groupId: "ext_g1",
+          },
+          {
+            id: "new_item",
+            name: "账号B",
+            baseUrl: "https://api.b.com",
+            apiKey: "sk-b",
+            modelName: "claude-3-7-sonnet",
+            groupId: "ext_g2",
+          },
+        ],
+      },
+      "merge"
+    );
+
+    expect(mergeRes).toEqual({ addedGroups: 1, addedItems: 1, skippedItems: 1 });
+    expect(store.configGroups.map((g) => g.name)).toEqual(["主力", "备用"]);
+    expect(store.configList).toHaveLength(2);
+
+    // 覆盖：完全替换分组与账号
+    const overwriteRes = store.importConfigs(
+      {
+        groups: [{ id: "only_g", name: "全新分组" }],
+        items: [
+          {
+            id: "only_i",
+            name: "全新账号",
+            baseUrl: "https://api.new.com",
+            apiKey: "sk-new",
+            groupId: "only_g",
+          },
+        ],
+      },
+      "overwrite"
+    );
+    expect(overwriteRes).toEqual({ addedGroups: 1, addedItems: 1, skippedItems: 0 });
+    expect(store.configGroups.map((g) => g.name)).toEqual(["全新分组"]);
+    expect(store.configList.map((c) => c.name)).toEqual(["全新账号"]);
+  });
 });
 
 

@@ -19,18 +19,12 @@ export async function pickDownloadDirectory(currentDir?: string): Promise<string
   return selected?.trim() || null;
 }
 
-export async function savePelicanFile(blob: Blob, fileName: string): Promise<PelicanFileResult | null> {
+export async function savePelicanFile(blob: Blob, fileName: string): Promise<PelicanFileResult> {
   if (isTauriApp()) {
     const invoke = getTauriInvoke();
     if (!invoke) throw new Error("桌面下载接口尚未就绪");
     const data = Array.from(new Uint8Array(await blob.arrayBuffer()));
     const downloadDir = useSettingsStore().downloadDirectory;
-    if (!downloadDir && /Windows/i.test(globalThis.navigator?.userAgent ?? "")) {
-      const path = await invoke<string | null>("save_pelican_file", {
-        fileName, extension: fileName.split(".").at(-1) || "", data,
-      });
-      return path ? { fileName, path } : null;
-    }
     const path = await invoke<string>("save_pelican_download", {
       fileName,
       data,

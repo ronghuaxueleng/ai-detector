@@ -13,6 +13,7 @@ import { CONNECTION_HISTORY_STORAGE_KEY } from "../constants";
 import { aggregateConnectionMessages } from "../utils/connectionMetrics";
 import { maskApiKey } from "../utils/pelicanFormatters";
 import { getModelRoutingStatus } from "../utils/modelRouting";
+import { importHistoryItems } from "../utils/historyImport";
 import { useSettingsStore } from "./settings";
 
 const STREAM_TEXT_TAIL_LENGTH = 120;
@@ -481,6 +482,18 @@ export const useConnectionTestStore = defineStore("connectionTest", () => {
     }
   }
 
+  function importConnectionHistory(items: ConnectionHistoryItem[], mode: "merge" | "overwrite") {
+    const { next, added, skipped } = importHistoryItems(
+      connectionHistoryList.value,
+      items,
+      mode,
+      persistConnectionHistory,
+      (item) => item.updatedAt || item.createdAt || 0
+    );
+    connectionHistoryList.value = next;
+    return { added, skipped };
+  }
+
   onScopeDispose(() => {
     currentRunId += 1;
     abortController?.abort();
@@ -512,5 +525,6 @@ export const useConnectionTestStore = defineStore("connectionTest", () => {
     clearConnectionContext,
     deleteConnectionHistoryItem,
     clearConnectionHistory,
+    importConnectionHistory,
   };
 });

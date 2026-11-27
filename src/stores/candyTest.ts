@@ -33,6 +33,7 @@ import {
   performCandyFinalEvaluation,
 } from "../utils/candyEvaluation";
 import { computeProgress, computeRunningStatusDesc } from "../utils/probeEvaluation";
+import { importHistoryItems } from "../utils/historyImport";
 
 const CANDY_INTRO_DESC =
   "通过 3 道动态糖果组合逻辑题，检验模型长逻辑链推理能力并判断是否存在降智（答对 ≥ 2 题即判定通过）";
@@ -93,6 +94,12 @@ export const useCandyTestStore = defineStore("candyTest", () => {
   function clearCandyHistory(): void {
     candyHistoryList.value = [];
     clearCandyHistoryStorage();
+  }
+
+  function importCandyHistory(items: CandyHistoryItem[], mode: "merge" | "overwrite") {
+    const { next, added, skipped } = importHistoryItems(candyHistoryList.value, items, mode, persistCandyHistory);
+    candyHistoryList.value = next;
+    return { added, skipped };
   }
 
   const currentChallenges = ref<CandyChallenge[]>(generateCandyChallengesSync(totalCount));
@@ -626,6 +633,7 @@ export const useCandyTestStore = defineStore("candyTest", () => {
     retrySingleQuestion,
     deleteCandyHistoryItem,
     clearCandyHistory,
+    importCandyHistory,
     applyHistoryItem,
   };
 });

@@ -3,7 +3,7 @@ import type { SegmentedOption, SelectOption } from "../components/common";
 
 export type SettingsValue = string | number | boolean;
 
-/** 界面风格：默认深蓝、亮色、中性灰阶暗色 */
+/** 界面风格：经典深蓝、亮色、中性灰阶暗色 */
 export type AppTheme = "default" | "light" | "midnight";
 
 export interface SettingsContext {
@@ -91,4 +91,6 @@ export interface SettingsPage {
   label: string;
   icon: Component;
   sections: SettingsSection[];
+  /** 自定义整页组件（如「数据」导入导出页），存在时替代常规 sections 渲染 */
+  component?: Component;
 }

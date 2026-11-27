@@ -7,6 +7,7 @@ import type { ClientConfig, ProbeStepItem, StatusAlertInfo, ProbeHistoryItem } f
 import { useConfigStore } from "./config";
 import { useSettingsStore } from "./settings";
 import { loadInitialProbeHistory, persistProbeHistory, createProbeHistoryRecord, clearProbeHistoryStorage } from "../utils/probeHistory";
+import { importHistoryItems } from "../utils/historyImport";
 import { executeSingleProbe } from "../services/probeRunner";
 import { createInitialSteps, formatProbeStepResult, createFailedStep, createCancelledSteps, computeProgress, computeRunningStatusDesc, collectStepErrors, performFinalEvaluation } from "../utils/probeEvaluation";
 import { loadActiveUnifiedBank, getPersistedUpdateStatus, setPersistedUpdateStatus, checkFingerprintUpdate, executeFingerprintUpdate } from "../services/fingerprintSync";
@@ -66,6 +67,8 @@ export const useProbeTestStore = defineStore("probeTest", () => {
     probeHistoryList.value = [];
     clearProbeHistoryStorage();
   }
+
+  function importProbeHistory(items: ProbeHistoryItem[], mode: "merge" | "overwrite") { const { next, added, skipped } = importHistoryItems(probeHistoryList.value, items, mode, persistProbeHistory); probeHistoryList.value = next; return { added, skipped }; }
 
   function applyHistoryItem(item: ProbeHistoryItem): void {
     if (item.fullAnalysis) {
@@ -183,14 +186,7 @@ export const useProbeTestStore = defineStore("probeTest", () => {
     steps.value = createInitialSteps(currentChallenges.value);
   }
 
-  function finalizeTestEvaluation(params: {
-    baseUrl: string;
-    apiKey: string;
-    model: string;
-    reasoningEffort?: string;
-    configName?: string;
-    sessionId: number;
-  }): void {
+  function finalizeTestEvaluation(params: { baseUrl: string; apiKey: string; model: string; reasoningEffort?: string; configName?: string; sessionId: number }): void {
     const { baseUrl, apiKey, model, reasoningEffort, configName, sessionId: evalSessionId } = params;
     if (evalSessionId !== sessionId) return;
 
@@ -493,6 +489,7 @@ export const useProbeTestStore = defineStore("probeTest", () => {
     retrySingleQuestion,
     deleteProbeHistoryItem,
     clearProbeHistory,
+    importProbeHistory,
     applyHistoryItem,
   };
 });
